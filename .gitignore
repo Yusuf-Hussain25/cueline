@@ -18,5 +18,5 @@ next-env.d.ts
 .DS_Store
 *.log
 recordings/
-scripts/audio/*.wav
-!scripts/audio/.gitkeep
+server/scripts/audio/*.wav
+!server/scripts/audio/.gitkeep

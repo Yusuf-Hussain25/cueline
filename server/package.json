@@ -5,11 +5,12 @@
   "type": "module",
   "description": "Cueline WebSocket server: streams audio to Deepgram, detects questions and streams LLM answers.",
   "scripts": {
-    "dev": "node --watch src/index.ts",
+    "dev": "node --env-file-if-exists=../.env --watch src/index.ts",
     "start": "node src/index.ts",
     "typecheck": "tsc --noEmit",
     "test": "node --test \"test/**/*.test.ts\"",
-    "simulate": "node scripts/simulate.ts"
+    "simulate": "node scripts/simulate.ts",
+    "make-audio": "node scripts/make-test-audio.ts"
   },
   "dependencies": {
     "@cueline/shared": "*",

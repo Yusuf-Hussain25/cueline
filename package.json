@@ -18,7 +18,8 @@
     "lint": "npm run lint -w web && npm run typecheck -w server",
     "typecheck": "npm run typecheck -w server && npm run typecheck -w web",
     "test": "npm test -w server",
-    "simulate": "npm run simulate -w server --"
+    "simulate": "npm run simulate -w server --",
+    "make-audio": "npm run make-audio -w server"
   },
   "devDependencies": {
     "concurrently": "^10.0.6"
