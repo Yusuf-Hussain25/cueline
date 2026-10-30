@@ -4,8 +4,8 @@ import { buildAnswerMessages, buildClassifierMessages, parseClassifierReply, typ
 
 // Generates answers and remembers recent ones (conversation memory), one instance per session.
 
-/** ~90 words is ~130 tokens; the cap stops a runaway essay without clipping a normal answer. */
-const MAX_ANSWER_TOKENS = 220;
+/** ~90 words is ~130 tokens; the cap stops a runaway essay with room to spare for a normal answer. */
+const MAX_ANSWER_TOKENS = 320;
 
 export interface AnswerResult {
   text: string;

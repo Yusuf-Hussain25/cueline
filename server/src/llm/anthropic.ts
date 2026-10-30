@@ -1,12 +1,16 @@
 import Anthropic from "@anthropic-ai/sdk";
 import { LlmError, type ChatMessage, type LlmClient } from "./types.ts";
 
-// Claude through the official SDK. Two latency choices:
+// Claude through the official SDK (default model: Haiku, the only Claude that met the 3 s target in
+// `npm run bench:llm`). Two latency choices:
 //   - Answers run at effort "low": thinking can't be switched off on current Opus models, but low
 //     effort keeps it brief, so the first token arrives quickly.
 //   - The classifier runs on Haiku with thinking disabled: it only has to say yes or no.
 // The server-side fallback re-runs a request on another model if one declines it, so a live
 // interview never ends up with no answer. Sampling parameters (temperature) are no longer accepted.
+
+/** Room for the model's (brief, low-effort) thinking on top of the visible answer. */
+const THINKING_HEADROOM = 2048;
 
 const describe = (err: unknown): LlmError => {
   if (err instanceof Anthropic.AuthenticationError) return new LlmError("Anthropic rejected the API key. Check ANTHROPIC_API_KEY in .env.", 401);
@@ -36,11 +40,15 @@ export const createAnthropicClient = ({ apiKey, model, classifierModel }: { apiK
 
     async *stream(messages, { signal, maxTokens }) {
       const { system, turns } = split(messages);
+      let wroteText = false;
+      let stopReason: string | null = null;
       try {
         const stream = client.beta.messages.stream(
           {
             model,
-            max_tokens: maxTokens,
+            // Thinking tokens count toward max_tokens, so a tight cap could be spent before the
+            // first visible word. The prompt keeps answers short; this only adds headroom.
+            max_tokens: maxTokens + THINKING_HEADROOM,
             system,
             messages: turns,
             output_config: { effort: "low" },
@@ -50,12 +58,20 @@ export const createAnthropicClient = ({ apiKey, model, classifierModel }: { apiK
           { signal },
         );
         for await (const event of stream) {
-          if (event.type === "content_block_delta" && event.delta.type === "text_delta") yield event.delta.text;
+          if (event.type === "content_block_delta" && event.delta.type === "text_delta") {
+            wroteText = true;
+            yield event.delta.text;
+          } else if (event.type === "message_delta") {
+            stopReason = event.delta.stop_reason ?? stopReason;
+          }
         }
       } catch (err) {
         if (signal.aborted) return;
         throw describe(err);
       }
+      // A request can end cleanly with nothing to show; say why instead of leaving a blank card
+      if (stopReason === "refusal") throw new LlmError("Claude declined to answer this question.");
+      if (!wroteText && !signal.aborted) throw new LlmError(`Claude returned no answer (stop reason: ${stopReason ?? "unknown"}).`);
     },
 
     async completeJson(messages, { signal, maxTokens }) {

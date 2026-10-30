@@ -10,7 +10,8 @@
     "typecheck": "tsc --noEmit",
     "test": "node --test \"test/**/*.test.ts\"",
     "simulate": "node scripts/simulate.ts",
-    "make-audio": "node scripts/make-test-audio.ts"
+    "make-audio": "node scripts/make-test-audio.ts",
+    "bench:llm": "node --env-file-if-exists=../.env scripts/bench-llm.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^1.3.0",
