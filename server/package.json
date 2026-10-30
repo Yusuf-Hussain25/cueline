@@ -13,9 +13,10 @@
     "make-audio": "node scripts/make-test-audio.ts"
   },
   "dependencies": {
+    "@anthropic-ai/sdk": "^1.3.0",
     "@cueline/shared": "*",
     "@google/genai": "^2.32.0",
-    "groq-sdk": "^1.6.0",
+    "openai": "^7.45.1",
     "ws": "^8.22.0",
     "zod": "^4.6.7"
   },

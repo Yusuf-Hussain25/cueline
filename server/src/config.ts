@@ -6,6 +6,10 @@ import { z } from "zod";
 const envFile = resolve(import.meta.dirname, "../../.env");
 if (existsSync(envFile)) process.loadEnvFile(envFile);
 
+/** LLM providers, in the order they're picked when LLM_PROVIDER is empty (fastest first). */
+const PROVIDERS = ["groq", "anthropic", "openai", "gemini", "deepseek"] as const;
+type Provider = (typeof PROVIDERS)[number];
+
 const optional = z
   .string()
   .trim()
@@ -24,13 +28,22 @@ const schema = z.object({
   /** Backup end-of-turn signal (ms) that fires even when background noise defeats endpointing. */
   UTTERANCE_END_MS: z.coerce.number().int().min(1000).max(5000).default(1000),
 
-  LLM_PROVIDER: z.enum(["groq", "gemini"]).optional(),
+  LLM_PROVIDER: z.enum(PROVIDERS).optional(),
   GROQ_API_KEY: optional,
   GROQ_MODEL: z.string().default("llama-3.3-70b-versatile"),
   GROQ_CLASSIFIER_MODEL: z.string().default("llama-3.1-8b-instant"),
+  ANTHROPIC_API_KEY: optional,
+  ANTHROPIC_MODEL: z.string().default("claude-opus-5-5"),
+  ANTHROPIC_CLASSIFIER_MODEL: z.string().default("claude-haiku-5-5"),
+  OPENAI_API_KEY: optional,
+  OPENAI_MODEL: z.string().default("gpt-4.1-mini"),
+  OPENAI_CLASSIFIER_MODEL: z.string().default("gpt-4.1-nano"),
   GEMINI_API_KEY: optional,
   GEMINI_MODEL: z.string().default("gemini-2.5-flash"),
   GEMINI_CLASSIFIER_MODEL: z.string().default("gemini-2.5-flash-lite"),
+  DEEPSEEK_API_KEY: optional,
+  DEEPSEEK_MODEL: z.string().default("deepseek-chat"),
+  DEEPSEEK_CLASSIFIER_MODEL: z.string().default("deepseek-chat"),
 
   /** How many earlier question/answer pairs are sent with each new question. */
   MEMORY_TURNS: z.coerce.number().int().min(0).max(20).default(4),
@@ -44,7 +57,17 @@ if (!parsed.success) {
 }
 const env = parsed.data;
 
-const llmProvider = env.LLM_PROVIDER ?? (env.GROQ_API_KEY || !env.GEMINI_API_KEY ? "groq" : "gemini");
+const LLM: Record<Provider, { apiKey?: string; model: string; classifierModel: string; keyVar: string }> = {
+  groq: { apiKey: env.GROQ_API_KEY, model: env.GROQ_MODEL, classifierModel: env.GROQ_CLASSIFIER_MODEL, keyVar: "GROQ_API_KEY" },
+  anthropic: { apiKey: env.ANTHROPIC_API_KEY, model: env.ANTHROPIC_MODEL, classifierModel: env.ANTHROPIC_CLASSIFIER_MODEL, keyVar: "ANTHROPIC_API_KEY" },
+  openai: { apiKey: env.OPENAI_API_KEY, model: env.OPENAI_MODEL, classifierModel: env.OPENAI_CLASSIFIER_MODEL, keyVar: "OPENAI_API_KEY" },
+  gemini: { apiKey: env.GEMINI_API_KEY, model: env.GEMINI_MODEL, classifierModel: env.GEMINI_CLASSIFIER_MODEL, keyVar: "GEMINI_API_KEY" },
+  deepseek: { apiKey: env.DEEPSEEK_API_KEY, model: env.DEEPSEEK_MODEL, classifierModel: env.DEEPSEEK_CLASSIFIER_MODEL, keyVar: "DEEPSEEK_API_KEY" },
+};
+
+// No LLM_PROVIDER set: use the first provider with a key, in rough order of time to first token
+const llmProvider: Provider = env.LLM_PROVIDER ?? PROVIDERS.find((p) => LLM[p].apiKey) ?? "groq";
+const { keyVar, ...llm } = LLM[llmProvider];
 
 export const config = {
   port: env.PORT,
@@ -56,12 +79,9 @@ export const config = {
     endpointingMs: env.ENDPOINTING_MS,
     utteranceEndMs: env.UTTERANCE_END_MS,
   },
-  llm:
-    llmProvider === "groq"
-      ? { provider: "groq", apiKey: env.GROQ_API_KEY, model: env.GROQ_MODEL, classifierModel: env.GROQ_CLASSIFIER_MODEL }
-      : { provider: "gemini", apiKey: env.GEMINI_API_KEY, model: env.GEMINI_MODEL, classifierModel: env.GEMINI_CLASSIFIER_MODEL },
+  llm: { provider: llmProvider, ...llm },
   memoryTurns: env.MEMORY_TURNS,
-} as const;
+};
 
 export type LlmConfig = typeof config.llm;
 
@@ -69,9 +89,6 @@ export type LlmConfig = typeof config.llm;
 export const configProblems = (): string[] => {
   const problems: string[] = [];
   if (!config.stt.apiKey) problems.push("DEEPGRAM_API_KEY is missing from .env, so audio can't be transcribed.");
-  if (!config.llm.apiKey) {
-    const key = config.llm.provider === "groq" ? "GROQ_API_KEY" : "GEMINI_API_KEY";
-    problems.push(`${key} is missing from .env, so answers can't be generated.`);
-  }
+  if (!config.llm.apiKey) problems.push(`${keyVar} is missing from .env, so answers can't be generated.`);
   return problems;
 };
