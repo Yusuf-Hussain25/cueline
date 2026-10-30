@@ -133,6 +133,41 @@ describe("QuestionDetector", () => {
     assert.equal(rec.questions[0]?.preamble, "Our office is near the station.");
   });
 
+  it("answers from interim text that stopped changing, without waiting for the STT", () => {
+    mock.timers.enable({ apis: ["setTimeout"] });
+    const { detector, rec } = setup();
+    detector.interim("s1", "What's the difference between", 1);
+    detector.interim("s1", "What's the difference between TCP and UDP?", 2.4);
+    mock.timers.tick(899);
+    assert.equal(rec.questions.length, 0, "still inside the stability window");
+    mock.timers.tick(1);
+    assert.equal(rec.questions.length, 1);
+    assert.equal(rec.questions[0]?.speechEnd, 2.4);
+
+    // The late final for the same segment must not trigger a second answer
+    detector.addFinal("What's the difference between TCP and UDP?", 2.4, "s1");
+    detector.endOfTurn();
+    assert.equal(rec.questions.length, 1);
+  });
+
+  it("does not close early on unstable or uncertain interim text", () => {
+    mock.timers.enable({ apis: ["setTimeout"] });
+    const { detector, rec } = setup();
+    detector.interim("s1", "Tell me about a time when", 1);
+    mock.timers.tick(2000);
+    assert.equal(rec.questions.length, 0, "trailing-off text waits for more");
+  });
+
+  it("merges an 'and …' continuation into the question it follows", () => {
+    const { detector, rec } = setup();
+    detector.addFinal("What's the difference between WebSockets and server-sent events?", 3);
+    detector.endOfTurn();
+    detector.addFinal("And when would you pick each one?", 6);
+    detector.endOfTurn();
+    assert.equal(rec.questions.length, 2);
+    assert.equal(rec.questions[1]?.text, "What's the difference between WebSockets and server-sent events, and when would you pick each one?");
+  });
+
   it("force() answers whatever was said so far", () => {
     const { detector, rec } = setup();
     detector.addFinal("Your thoughts on microservices", 2);

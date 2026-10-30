@@ -4,13 +4,16 @@
 //
 //   npm run simulate                          → plays scripts/audio/interview.wav
 //   npm run simulate -- path/to/16k-mono.wav
+//   npm run simulate -- --verbose             → also print interim (still changing) transcript
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import WebSocket from "ws";
 import { CHUNK_BYTES, CHUNK_MS, SAMPLE_RATE, type AnswerMetrics, type ServerMessage } from "@cueline/shared";
 import { config } from "../src/config.ts";
 
-const file = resolve(process.argv[2] ?? resolve(import.meta.dirname, "audio/interview.wav"));
+const args = process.argv.slice(2);
+const verbose = args.includes("--verbose");
+const file = resolve(args.find((a) => !a.startsWith("--")) ?? resolve(import.meta.dirname, "audio/interview.wav"));
 
 /** Returns the PCM payload of a 16 kHz mono 16-bit WAV. */
 const readWav = (path: string): Buffer => {
@@ -72,6 +75,7 @@ ws.on("message", (raw) => {
   switch (msg.type) {
     case "transcript":
       if (msg.isFinal) console.log(`${stamp()}  heard     ${msg.text}`);
+      else if (verbose) console.log(`${stamp()}  …         ${msg.text}`);
       break;
     case "ignored":
       console.log(`${stamp()}  skipped   (${msg.reason})`);

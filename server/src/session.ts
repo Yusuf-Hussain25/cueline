@@ -168,8 +168,8 @@ export class Session {
         onTranscript: (e) => {
           if (run !== this.run) return;
           if (e.text) this.send({ type: "transcript", segmentId: `r${run}-${e.segmentId}`, text: e.text, isFinal: e.isFinal, at: Date.now() });
-          if (e.isFinal) this.detector.addFinal(e.text, e.end);
-          else if (e.text) this.detector.speechActivity();
+          if (e.isFinal) this.detector.addFinal(e.text, e.end, e.segmentId);
+          else if (e.text) this.detector.interim(e.segmentId, e.text, e.end);
           if (e.speechFinal) this.detector.endOfTurn();
         },
         onUtteranceEnd: () => {
