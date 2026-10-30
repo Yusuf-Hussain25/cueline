@@ -5,9 +5,22 @@ import type { AnswerMetrics, DetectionPath, ServerInfo, ServerMessage, SessionSt
 
 export type Connection = "connecting" | "open" | "closed";
 
-export type TranscriptItem =
-  | { kind: "speech"; id: string; text: string; isFinal: boolean }
-  | { kind: "note"; id: string; tone: "ignored" | "pending" | "question"; text: string };
+export interface TranscriptPart {
+  segmentId: string;
+  text: string;
+  isFinal: boolean;
+}
+
+/** One interviewer turn: STT segments grouped until the detector decides what the turn was. */
+export interface Turn {
+  id: string;
+  at: number;
+  parts: TranscriptPart[];
+  /** The detector's verdict, shown under the bubble. */
+  flag: { tone: "ignored" | "pending" | "question"; text: string } | null;
+  /** Closed turns take no more text; the next segment starts a new bubble. */
+  closed: boolean;
+}
 
 export interface Question {
   id: string;
@@ -32,13 +45,14 @@ export interface HistoryEntry {
 export interface Toast {
   id: number;
   message: string;
+  tone: "error" | "info";
 }
 
 export interface ViewState {
   connection: Connection;
   info: ServerInfo | null;
   session: SessionState;
-  transcript: TranscriptItem[];
+  turns: Turn[];
   question: Question | null;
   answer: Answer | null;
   history: HistoryEntry[];
@@ -48,7 +62,7 @@ export interface ViewState {
 export type Action =
   | { type: "server"; message: ServerMessage }
   | { type: "connection"; connection: Connection }
-  | { type: "toast"; message: string }
+  | { type: "toast"; message: string; tone?: Toast["tone"] }
   | { type: "dismiss"; id: number }
   | { type: "clear_transcript" };
 
@@ -56,25 +70,41 @@ export const initialState: ViewState = {
   connection: "connecting",
   info: null,
   session: "idle",
-  transcript: [],
+  turns: [],
   question: null,
   answer: null,
   history: [],
   toasts: [],
 };
 
-const MAX_TRANSCRIPT_ITEMS = 300;
+const MAX_TURNS = 120;
 let toastId = 0;
 
-const pushTranscript = (items: TranscriptItem[], item: TranscriptItem) => {
-  const next = [...items, item];
-  return next.length > MAX_TRANSCRIPT_ITEMS ? next.slice(next.length - MAX_TRANSCRIPT_ITEMS) : next;
+const addToast = (state: ViewState, message: string, tone: Toast["tone"] = "error"): ViewState => {
+  // The same message twice in a row (e.g. rate limit) shouldn't stack up
+  if (state.toasts.some((t) => t.message === message)) return state;
+  return { ...state, toasts: [...state.toasts.slice(-2), { id: ++toastId, message, tone }] };
 };
 
-const addToast = (state: ViewState, message: string): ViewState => {
-  // The same error twice in a row (e.g. rate limit) shouldn't stack up
-  if (state.toasts.some((t) => t.message === message)) return state;
-  return { ...state, toasts: [...state.toasts.slice(-2), { id: ++toastId, message }] };
+const upsertPart = (turns: Turn[], part: TranscriptPart, at: number): Turn[] => {
+  const index = turns.findIndex((t) => t.parts.some((p) => p.segmentId === part.segmentId));
+  if (index !== -1) {
+    const turn = turns[index];
+    const next = turns.slice();
+    next[index] = { ...turn, parts: turn.parts.map((p) => (p.segmentId === part.segmentId ? part : p)) };
+    return next;
+  }
+  const last = turns[turns.length - 1];
+  if (last && !last.closed) return [...turns.slice(0, -1), { ...last, parts: [...last.parts, part] }];
+  const next = [...turns, { id: part.segmentId, at, parts: [part], flag: null, closed: false }];
+  return next.length > MAX_TURNS ? next.slice(next.length - MAX_TURNS) : next;
+};
+
+/** Marks the latest turn with the detector's verdict (and closes it unless still pending). */
+const flagLast = (turns: Turn[], flag: NonNullable<Turn["flag"]>, close: boolean): Turn[] => {
+  const last = turns[turns.length - 1];
+  if (!last || last.closed) return turns;
+  return [...turns.slice(0, -1), { ...last, flag, closed: close }];
 };
 
 const reduceServer = (state: ViewState, msg: ServerMessage): ViewState => {
@@ -83,36 +113,26 @@ const reduceServer = (state: ViewState, msg: ServerMessage): ViewState => {
       return { ...state, info: msg.info };
     case "state":
       return { ...state, session: msg.state };
-    case "transcript": {
-      const index = state.transcript.findIndex((t) => t.kind === "speech" && t.id === msg.segmentId);
-      const item: TranscriptItem = { kind: "speech", id: msg.segmentId, text: msg.text, isFinal: msg.isFinal };
-      if (index === -1) return { ...state, transcript: pushTranscript(state.transcript, item) };
-      const transcript = state.transcript.slice();
-      transcript[index] = item;
-      return { ...state, transcript };
-    }
+    case "transcript":
+      return { ...state, turns: upsertPart(state.turns, { segmentId: msg.segmentId, text: msg.text, isFinal: msg.isFinal }, msg.at) };
     case "ignored":
-      return {
-        ...state,
-        transcript: pushTranscript(state.transcript, { kind: "note", id: `n${msg.at}-${Math.random()}`, tone: "ignored", text: `Skipped: ${msg.reason}` }),
-      };
+      return { ...state, turns: flagLast(state.turns, { tone: "ignored", text: `Skipped · ${msg.reason}` }, true) };
     case "pending":
-      return {
-        ...state,
-        transcript: pushTranscript(state.transcript, { kind: "note", id: `n${msg.at}-${Math.random()}`, tone: "pending", text: "Sounds unfinished, waiting for the rest…" }),
-      };
+      return { ...state, turns: flagLast(state.turns, { tone: "pending", text: "Sounds unfinished, waiting for the rest" }, false) };
     case "question": {
       // Archive the previous finished answer so memory is visible in the UI
+      const prev = state.question;
       const history =
-        state.question && state.answer && state.answer.done && state.answer.text.trim() && !state.history.some((h) => h.question.id === state.question!.id)
-          ? [{ question: state.question, answer: state.answer }, ...state.history]
+        prev && state.answer?.done && state.answer.text.trim() && !state.history.some((h) => h.question.id === prev.id)
+          ? [{ question: prev, answer: state.answer }, ...state.history]
           : state.history;
+      const fromSpeech = msg.path === "heuristic" || msg.path === "classifier" || msg.path === "forced";
       return {
         ...state,
         history,
         question: { id: msg.id, text: msg.text, path: msg.path, at: msg.at },
         answer: { id: msg.id, text: "", done: false, cancelled: false, metrics: null },
-        transcript: pushTranscript(state.transcript, { kind: "note", id: `q${msg.id}`, tone: "question", text: "Question detected" }),
+        turns: fromSpeech ? flagLast(state.turns, { tone: "question", text: "Question detected" }, true) : state.turns,
       };
     }
     case "answer_delta":
@@ -135,10 +155,10 @@ export const reducer = (state: ViewState, action: Action): ViewState => {
     case "connection":
       return { ...state, connection: action.connection, session: action.connection === "open" ? state.session : "idle" };
     case "toast":
-      return addToast(state, action.message);
+      return addToast(state, action.message, action.tone);
     case "dismiss":
       return { ...state, toasts: state.toasts.filter((t) => t.id !== action.id) };
     case "clear_transcript":
-      return { ...state, transcript: [] };
+      return { ...state, turns: [] };
   }
 };

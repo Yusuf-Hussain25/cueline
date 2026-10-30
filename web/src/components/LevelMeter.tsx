@@ -2,26 +2,26 @@
 
 import { useEffect, useRef } from "react";
 
-const BARS = 14;
+const SEGMENTS = 20;
 
 /** Live input level, animated from a ref so audio updates never re-render React. */
 export function LevelMeter({ levelRef, active }: { levelRef: React.RefObject<number>; active: boolean }) {
   const barsRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    const bars = barsRef.current ? Array.from(barsRef.current.children) as HTMLElement[] : [];
+    const segments = barsRef.current ? (Array.from(barsRef.current.children) as HTMLElement[]) : [];
     if (!active) {
-      bars.forEach((b) => (b.style.height = "3px"));
+      segments.forEach((s) => s.classList.remove("on"));
       return;
     }
     let frame = 0;
-    const history: number[] = Array(BARS).fill(0);
+    let smoothed = 0;
     const tick = () => {
-      history.push(levelRef.current ?? 0);
-      history.shift();
-      bars.forEach((bar, i) => {
-        bar.style.height = `${Math.max(3, Math.round(history[i] * 22))}px`;
-      });
+      // Rise fast, fall slowly, like a hardware meter
+      const level = levelRef.current ?? 0;
+      smoothed = level > smoothed ? level : smoothed * 0.9;
+      const lit = Math.round(Math.min(1, smoothed) * SEGMENTS);
+      segments.forEach((s, i) => s.classList.toggle("on", i < lit));
       frame = requestAnimationFrame(tick);
     };
     frame = requestAnimationFrame(tick);
@@ -30,8 +30,8 @@ export function LevelMeter({ levelRef, active }: { levelRef: React.RefObject<num
 
   return (
     <div className="meter" ref={barsRef} aria-hidden="true">
-      {Array.from({ length: BARS }, (_, i) => (
-        <span key={i} style={{ height: 3 }} />
+      {Array.from({ length: SEGMENTS }, (_, i) => (
+        <span key={i} />
       ))}
     </div>
   );

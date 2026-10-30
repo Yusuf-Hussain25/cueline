@@ -7,26 +7,15 @@ const KEY = "cueline-theme";
 type Theme = "light" | "dark";
 
 const listeners = new Set<() => void>();
-
-const current = (): Theme => {
-  const set = document.documentElement.dataset.theme;
-  if (set === "light" || set === "dark") return set;
-  return window.matchMedia("(prefers-color-scheme: light)").matches ? "light" : "dark";
-};
-
+const current = (): Theme => (document.documentElement.dataset.theme === "dark" ? "dark" : "light");
 const subscribe = (cb: () => void) => {
   listeners.add(cb);
-  const media = window.matchMedia("(prefers-color-scheme: light)");
-  media.addEventListener("change", cb);
-  return () => {
-    listeners.delete(cb);
-    media.removeEventListener("change", cb);
-  };
+  return () => listeners.delete(cb);
 };
 
 export function ThemeToggle() {
-  // Server render can't know the theme; the inline script in layout.tsx already applied it
-  const theme = useSyncExternalStore(subscribe, current, () => "dark" as Theme);
+  // Light is the default; the inline script in layout.tsx applies a saved dark choice before paint
+  const theme = useSyncExternalStore(subscribe, current, () => "light" as Theme);
 
   const toggle = () => {
     const next: Theme = theme === "dark" ? "light" : "dark";
@@ -41,7 +30,7 @@ export function ThemeToggle() {
 
   return (
     <button type="button" className="btn btn-ghost icon-btn" onClick={toggle} aria-label={`Switch to ${theme === "dark" ? "light" : "dark"} theme`} title="Toggle theme">
-      {theme === "dark" ? <Sun size={18} /> : <Moon size={18} />}
+      {theme === "dark" ? <Sun size={20} /> : <Moon size={20} />}
     </button>
   );
 }

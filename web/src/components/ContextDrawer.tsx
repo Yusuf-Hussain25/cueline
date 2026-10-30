@@ -1,72 +1,36 @@
 "use client";
 
-import { FileText, Sparkles, Trash2, X } from "lucide-react";
-import { useEffect, useRef, useState } from "react";
-import { LIMITS, type CandidateContext } from "@cueline/shared";
+import { FileText, Sparkles, Trash2 } from "lucide-react";
+import { useState } from "react";
+import { LIMITS } from "@cueline/shared";
+import type { StoredContext } from "@/lib/contextStore";
 import { SAMPLE_CONTEXT } from "@/lib/sample";
+import { Drawer } from "./ui/Drawer";
 
-/** Resume + job description form. Answers are grounded in what's pasted here. */
-export function ContextDrawer({ initial, onSave, onClose }: { initial: CandidateContext; onSave: (c: CandidateContext) => void; onClose: () => void }) {
+/** Paste or edit the resume and job description. Answers only use experience from the resume. */
+export function ContextDrawer({ initial, onSave, onClose }: { initial: StoredContext; onSave: (c: StoredContext) => void; onClose: () => void }) {
   const [resume, setResume] = useState(initial.resume);
   const [jobDescription, setJobDescription] = useState(initial.jobDescription);
-  const firstRef = useRef<HTMLTextAreaElement>(null);
-
-  useEffect(() => {
-    firstRef.current?.focus();
-    const onKey = (e: KeyboardEvent) => e.key === "Escape" && onClose();
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [onClose]);
 
   const save = () => {
-    onSave({ resume: resume.trim(), jobDescription: jobDescription.trim() });
+    onSave({
+      resume: resume.trim(),
+      jobDescription: jobDescription.trim(),
+      // Editing the text by hand means it no longer matches the uploaded file
+      resumeFile: resume.trim() === initial.resume ? initial.resumeFile : null,
+      jdFile: jobDescription.trim() === initial.jobDescription ? initial.jdFile : null,
+    });
     onClose();
   };
 
   return (
-    <>
-      <div className="scrim" onClick={onClose} aria-hidden="true" />
-      <div className="drawer" role="dialog" aria-modal="true" aria-labelledby="context-title">
-        <div className="drawer-head">
-          <FileText size={22} style={{ color: "var(--accent-1)" }} />
-          <div style={{ flex: 1 }}>
-            <h2 id="context-title">Your interview context</h2>
-            <p>Answers only use experience from your resume, and match it to the job description.</p>
-          </div>
-          <button type="button" className="btn btn-ghost icon-btn" onClick={onClose} aria-label="Close">
-            <X size={18} />
-          </button>
-        </div>
-        <div className="drawer-body">
-          <div className="field">
-            <label htmlFor="resume">
-              Resume or summary <small>{resume.length.toLocaleString()} / {LIMITS.contextChars.toLocaleString()}</small>
-            </label>
-            <textarea
-              id="resume"
-              ref={firstRef}
-              className="textarea"
-              value={resume}
-              maxLength={LIMITS.contextChars}
-              placeholder="Paste your resume: roles, projects, numbers, skills…"
-              onChange={(e) => setResume(e.target.value)}
-            />
-          </div>
-          <div className="field">
-            <label htmlFor="jd">
-              Job description <small>{jobDescription.length.toLocaleString()} / {LIMITS.contextChars.toLocaleString()}</small>
-            </label>
-            <textarea
-              id="jd"
-              className="textarea"
-              value={jobDescription}
-              maxLength={LIMITS.contextChars}
-              placeholder="Paste the job description you're interviewing for…"
-              onChange={(e) => setJobDescription(e.target.value)}
-            />
-          </div>
-        </div>
-        <div className="drawer-foot">
+    <Drawer
+      title="Your interview context"
+      subtitle="Answers only use experience from your resume and match it to the job description."
+      icon={<FileText size={17} />}
+      onClose={onClose}
+      footer={
+        <>
           <div style={{ display: "flex", gap: 8 }}>
             <button
               type="button"
@@ -76,7 +40,7 @@ export function ContextDrawer({ initial, onSave, onClose }: { initial: Candidate
                 setJobDescription(SAMPLE_CONTEXT.jobDescription);
               }}
             >
-              <Sparkles size={14} /> Use sample
+              <Sparkles size={15} /> Use sample
             </button>
             <button
               type="button"
@@ -87,14 +51,33 @@ export function ContextDrawer({ initial, onSave, onClose }: { initial: Candidate
                 setJobDescription("");
               }}
             >
-              <Trash2 size={14} /> Clear
+              <Trash2 size={15} /> Clear
             </button>
           </div>
           <button type="button" className="btn btn-primary" onClick={save}>
             Save context
           </button>
-        </div>
+        </>
+      }
+    >
+      <div className="field">
+        <label htmlFor="resume">
+          Resume or summary
+          <small>
+            {resume.length.toLocaleString()} / {LIMITS.contextChars.toLocaleString()}
+          </small>
+        </label>
+        <textarea id="resume" className="textarea" value={resume} maxLength={LIMITS.contextChars} placeholder="Paste your resume: roles, projects, numbers, skills…" onChange={(e) => setResume(e.target.value)} />
       </div>
-    </>
+      <div className="field">
+        <label htmlFor="jd">
+          Job description
+          <small>
+            {jobDescription.length.toLocaleString()} / {LIMITS.contextChars.toLocaleString()}
+          </small>
+        </label>
+        <textarea id="jd" className="textarea" value={jobDescription} maxLength={LIMITS.contextChars} placeholder="Paste the job description you're interviewing for…" onChange={(e) => setJobDescription(e.target.value)} />
+      </div>
+    </Drawer>
   );
 }

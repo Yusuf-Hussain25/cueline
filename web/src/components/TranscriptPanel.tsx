@@ -1,65 +1,134 @@
 "use client";
 
-import { AudioLines, CircleSlash, Eraser, Hourglass, Sparkles } from "lucide-react";
-import { useEffect, useRef } from "react";
-import type { TranscriptItem } from "@/lib/sessionState";
+import { AudioLines, CircleSlash, Hourglass, Send, Sparkles, Trash2 } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
+import { LIMITS } from "@cueline/shared";
+import { formatClock } from "@/lib/format";
+import type { Turn } from "@/lib/sessionState";
 
-const NOTE_ICON = { ignored: CircleSlash, pending: Hourglass, question: Sparkles } as const;
+const FLAG_ICON = { ignored: CircleSlash, pending: Hourglass, question: Sparkles } as const;
 
-export function TranscriptPanel({ items, listening, onClear }: { items: TranscriptItem[]; listening: boolean; onClear: () => void }) {
+export function TranscriptPanel({
+  turns,
+  listening,
+  canAsk,
+  onClear,
+  onAsk,
+}: {
+  turns: Turn[];
+  listening: boolean;
+  canAsk: boolean;
+  onClear: () => void;
+  onAsk: (text: string) => void;
+}) {
   const bodyRef = useRef<HTMLDivElement>(null);
   const stickRef = useRef(true);
+  const [typed, setTyped] = useState("");
 
   // Follow new text unless the user scrolled up to reread something
   useEffect(() => {
     const el = bodyRef.current;
     if (el && stickRef.current) el.scrollTop = el.scrollHeight;
-  }, [items]);
+  }, [turns]);
 
   return (
-    <section className="panel transcript" aria-label="Live transcript">
-      <div className="panel-head">
-        <h2 className="panel-title">
-          <AudioLines size={15} /> Live transcript
+    <section className="card transcript" aria-label="Live transcript">
+      <div className="card-head">
+        <h2 className="card-title">
+          <span className="ico">
+            <AudioLines size={17} />
+          </span>
+          Live Transcript
         </h2>
         <span className="spacer" />
-        <button type="button" className="btn btn-ghost btn-sm" onClick={onClear} disabled={items.length === 0} aria-label="Clear transcript">
-          <Eraser size={14} /> Clear
+        {listening ? (
+          <span className="chip green">
+            <span className="dot" /> Live
+          </span>
+        ) : (
+          <span className="chip muted">Paused</span>
+        )}
+        <button type="button" className="btn btn-sm" onClick={onClear} disabled={turns.length === 0}>
+          <Trash2 size={15} /> Clear
         </button>
       </div>
+
       <div
         className="transcript-body"
         ref={bodyRef}
-        aria-live="off"
         onScroll={(e) => {
           const el = e.currentTarget;
-          stickRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < 40;
+          stickRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < 48;
         }}
       >
-        {items.length === 0 ? (
+        {turns.length === 0 ? (
           <div className="empty">
-            <AudioLines size={26} />
-            <strong>{listening ? "Listening…" : "Nothing heard yet"}</strong>
-            <span>{listening ? "Words appear here as the interviewer speaks. Grey text is still being recognised." : "Press Start and share the meeting tab. The interviewer's words stream in here."}</span>
+            <span className="ico">
+              <AudioLines size={24} />
+            </span>
+            <strong>{listening ? "Listening for the interviewer…" : "Nothing heard yet"}</strong>
+            <span>{listening ? "Words appear here as they're spoken. Grey text is still being recognised." : "Press Start Listening and share the meeting tab. Each interviewer turn shows up here."}</span>
           </div>
         ) : (
-          items.map((item) => {
-            if (item.kind === "speech") {
-              return (
-                <p key={item.id} className={`line${item.isFinal ? "" : " interim"}`}>
-                  {item.text}
-                </p>
-              );
-            }
-            const Icon = NOTE_ICON[item.tone];
+          turns.map((turn) => {
+            const Icon = turn.flag ? FLAG_ICON[turn.flag.tone] : null;
             return (
-              <div key={item.id} className={`note ${item.tone}`}>
-                <Icon size={13} /> {item.text}
+              <div className="msg" key={turn.id}>
+                <time dateTime={new Date(turn.at).toISOString()}>{formatClock(turn.at)}</time>
+                <div className={`bubble${turn.flag?.tone === "question" ? " question" : ""}`}>
+                  <span className="who">Interviewer</span>
+                  {turn.parts.map((p) => (
+                    <span key={p.segmentId} className={p.isFinal ? undefined : "interim"}>
+                      {p.text}{" "}
+                    </span>
+                  ))}
+                  {turn.flag && Icon && (
+                    <div className={`flag ${turn.flag.tone}`}>
+                      <Icon size={13} /> {turn.flag.text}
+                    </div>
+                  )}
+                </div>
               </div>
             );
           })
         )}
+        {listening && turns.length > 0 && (
+          <div className="listening-row" aria-hidden="true">
+            <span className="wave" style={{ color: "var(--text-3)" }}>
+              <i />
+              <i />
+              <i />
+              <i />
+              <i />
+            </span>
+            Listening…
+          </div>
+        )}
       </div>
+
+      <form
+        className="ask"
+        onSubmit={(e) => {
+          e.preventDefault();
+          const text = typed.trim();
+          if (!text) return;
+          onAsk(text);
+          setTyped("");
+        }}
+      >
+        <input
+          className="input"
+          value={typed}
+          maxLength={LIMITS.questionChars}
+          onChange={(e) => setTyped(e.target.value)}
+          placeholder="Type a question to test an answer…"
+          aria-label="Type a question"
+          disabled={!canAsk}
+        />
+        <button type="submit" className="btn btn-primary icon-btn" disabled={!typed.trim() || !canAsk} aria-label="Ask">
+          <Send size={17} />
+        </button>
+      </form>
     </section>
   );
 }

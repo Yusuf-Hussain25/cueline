@@ -26,15 +26,15 @@ export type ClientMessage =
   | { type: "force_answer" }
   /** Stops the answer that is streaming. */
   | { type: "cancel_answer" }
-  /** Answers a typed question (handy when audio is unavailable). */
-  | { type: "ask"; text: string }
+  /** Answers a typed question (handy when audio is unavailable), or re-answers one. */
+  | { type: "ask"; text: string; regenerate?: boolean }
   /** Forgets earlier questions and answers. */
   | { type: "reset_memory" };
 
 // ---------- server → client ----------
 
 /** How a turn was classified. */
-export type DetectionPath = "heuristic" | "classifier" | "forced" | "typed";
+export type DetectionPath = "heuristic" | "classifier" | "forced" | "typed" | "regenerated";
 
 /** Timings for one answer, all in milliseconds. */
 export interface AnswerMetrics {

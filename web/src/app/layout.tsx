@@ -13,19 +13,19 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Cueline · live interview copilot",
+  title: "Cueline · AI interview copilot",
   description: "Listens to the interviewer, detects each question and streams a short answer grounded in your resume.",
 };
 
 export const viewport: Viewport = {
   themeColor: [
-    { media: "(prefers-color-scheme: dark)", color: "#0a0d14" },
-    { media: "(prefers-color-scheme: light)", color: "#f5f7fb" },
+    { media: "(prefers-color-scheme: dark)", color: "#0b0e17" },
+    { media: "(prefers-color-scheme: light)", color: "#ffffff" },
   ],
 };
 
-// Applies the saved theme before first paint, so a light-mode user never sees a dark flash
-const themeScript = `try{var t=localStorage.getItem("cueline-theme");if(t==="light"||t==="dark")document.documentElement.dataset.theme=t}catch(e){}`;
+// Light by default; a saved dark choice is applied before first paint so there's no flash
+const themeScript = `try{if(localStorage.getItem("cueline-theme")==="dark")document.documentElement.dataset.theme="dark"}catch(e){}`;
 
 export default function RootLayout({ children }: LayoutProps<"/">) {
   return (

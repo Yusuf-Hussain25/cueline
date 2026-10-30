@@ -1,21 +1,22 @@
 "use client";
 
-import { FileText, Mic, MonitorUp, Play, Send, Square, TriangleAlert, Zap } from "lucide-react";
-import { useEffect, useRef, useState, useSyncExternalStore } from "react";
-import type { CandidateContext } from "@cueline/shared";
+import { TriangleAlert } from "lucide-react";
+import { useRef, useState, useSyncExternalStore } from "react";
 import type { AudioSource } from "@/lib/audio";
-import { contextStore } from "@/lib/contextStore";
+import { contextStore, toCandidateContext, type StoredContext } from "@/lib/contextStore";
 import { useCueline } from "@/lib/useCueline";
 import { AnswerCard, QuestionCard } from "./AnswerPanel";
+import { AudioSourceCard } from "./AudioSourceCard";
+import { ContextCard } from "./ContextCard";
 import { ContextDrawer } from "./ContextDrawer";
-import { HistoryPanel } from "./HistoryPanel";
-import { LevelMeter } from "./LevelMeter";
+import { HelpDrawer, HistoryDrawer } from "./Drawers";
 import { MetricsBar } from "./MetricsBar";
-import { StatusPill } from "./StatusPill";
-import { ThemeToggle } from "./ThemeToggle";
+import { Rail } from "./Rail";
 import { Toasts } from "./Toasts";
+import { TopBar } from "./TopBar";
 import { TranscriptPanel } from "./TranscriptPanel";
-import { Logo } from "./ui/Logo";
+
+type Panel = "context" | "history" | "help" | null;
 
 export function Cockpit() {
   const levelRef = useRef(0);
@@ -23,32 +24,32 @@ export function Cockpit() {
   const { state } = cue;
   const context = useSyncExternalStore(contextStore.subscribe, contextStore.get, contextStore.getServer);
   const [source, setSource] = useState<AudioSource>("tab");
-  const [drawerOpen, setDrawerOpen] = useState(false);
+  const [panel, setPanel] = useState<Panel>(null);
   const [starting, setStarting] = useState(false);
-  const [typed, setTyped] = useState("");
-  // Clock for "12s ago" labels. Starts at 0 (reads as "just now") so the prerender stays static.
-  const [now, setNow] = useState(0);
-
-  useEffect(() => {
-    const t = setInterval(() => setNow(Date.now()), 2000);
-    return () => clearInterval(t);
-  }, []);
 
   const connected = state.connection === "open";
   const running = state.session !== "idle";
   const problems = state.info?.problems ?? [];
-  const hasContext = Boolean(context.resume || context.jobDescription);
-  const busy = state.session === "thinking" || state.session === "answering";
+  const llmReady = connected && Boolean(state.info?.llm.ready);
 
   const start = async () => {
     setStarting(true);
-    await cue.start(source, context);
+    await cue.start(source, toCandidateContext(context));
     setStarting(false);
   };
 
-  const saveContext = (next: CandidateContext) => {
+  const saveContext = (next: StoredContext) => {
     contextStore.set(next);
-    if (running) cue.updateContext(next);
+    if (running) cue.updateContext(toCandidateContext(next));
+  };
+
+  const copy = async (text: string) => {
+    try {
+      await navigator.clipboard.writeText(text);
+      cue.notify("Answer copied");
+    } catch {
+      cue.notify("Couldn't copy. Select the text instead.");
+    }
   };
 
   const metricsHistory = [
@@ -57,34 +58,17 @@ export function Cockpit() {
   ];
 
   return (
-    <>
-      <div className="aurora" aria-hidden="true" />
-      <main className="shell">
-        <header className="panel topbar">
-          <div className="brand">
-            <Logo />
-            <div>
-              Cueline
-              <small>live interview copilot</small>
-            </div>
-          </div>
-          <StatusPill state={state.session} connection={state.connection} />
-          <span className="grow" />
-          <div className="topbar-actions">
-            {state.info && (
-              <span className="chip hide-sm" title="Speech-to-text and LLM in use">
-                {state.info.stt.provider} {state.info.stt.model} · {state.info.llm.provider} {state.info.llm.model}
-              </span>
-            )}
-            <button type="button" className="btn btn-sm" onClick={() => setDrawerOpen(true)} aria-label="Edit resume and job description">
-              <FileText size={15} />
-              {hasContext ? "Context" : "Add resume & JD"}
-              {hasContext && <span className="chip good" style={{ height: 20, padding: "0 7px" }}>✓</span>}
-            </button>
-            <ThemeToggle />
-          </div>
-        </header>
+    <div className="app">
+      <TopBar
+        state={state.session}
+        connection={state.connection}
+        info={state.info}
+        hasContext={Boolean(context.resume || context.jobDescription)}
+        onOpenContext={() => setPanel("context")}
+      />
+      <Rail historyCount={state.history.length} onHome={() => window.scrollTo({ top: 0, behavior: "smooth" })} onHistory={() => setPanel("history")} onHelp={() => setPanel("help")} />
 
+      <main className="workspace">
         {problems.length > 0 && (
           <div className="banner" role="alert">
             <TriangleAlert size={18} />
@@ -96,92 +80,42 @@ export function Cockpit() {
                 ))}
               </ul>
               <span style={{ color: "var(--text-3)" }}>
-                Add the keys to <code>.env</code> (see <code>.env.example</code>) and restart the server.
+                Add the keys to <code>.env</code> (see <code>.env.example</code>); the server restarts on its own.
               </span>
             </div>
           </div>
         )}
 
-        <div className="workspace">
-          <div className="col">
-            <section className="panel dock" aria-label="Controls">
-              <div className="dock-row">
-                <div className="segmented" role="group" aria-label="Audio source">
-                  <button type="button" aria-pressed={source === "tab"} disabled={running} onClick={() => setSource("tab")}>
-                    <MonitorUp size={15} /> Meeting tab
-                  </button>
-                  <button type="button" aria-pressed={source === "mic"} disabled={running} onClick={() => setSource("mic")}>
-                    <Mic size={15} /> Microphone
-                  </button>
-                </div>
-                <span style={{ flex: 1 }} />
-                <LevelMeter levelRef={levelRef} active={running} />
-              </div>
-              <div className="dock-row">
-                {running ? (
-                  <button type="button" className="btn btn-danger btn-lg" onClick={cue.stop}>
-                    <Square size={16} /> Stop
-                  </button>
-                ) : (
-                  <button type="button" className="btn btn-primary btn-lg" onClick={start} disabled={!connected || starting || !state.info?.stt.ready}>
-                    <Play size={16} /> {starting ? "Choose a tab…" : "Start listening"}
-                  </button>
-                )}
-                <button
-                  type="button"
-                  className="btn btn-lg"
-                  onClick={cue.forceAnswer}
-                  disabled={!running || busy}
-                  title="Answer what the interviewer has said so far"
-                  style={{ flex: "0 0 auto" }}
-                >
-                  <Zap size={16} /> Answer now
-                </button>
-              </div>
-              <p className="hint">
-                {source === "tab"
-                  ? "Pick the Meet or Zoom tab in the share dialog and keep “Share tab audio” on. Only the interviewer is captured."
-                  : "Uses your microphone. It also hears you, so this works best when the interviewer comes through speakers."}
-                {!hasContext && " Add your resume first so answers are about you."}
-              </p>
-            </section>
-            <TranscriptPanel items={state.transcript} listening={running} onClear={cue.clearTranscript} />
-          </div>
-
-          <div className="col">
-            <QuestionCard question={state.question} now={now} />
-            <AnswerCard answer={state.answer} onCancel={cue.cancelAnswer} />
-            <MetricsBar metrics={state.answer?.metrics ?? null} all={metricsHistory} />
-            <form
-              className="panel ask"
-              onSubmit={(e) => {
-                e.preventDefault();
-                const text = typed.trim();
-                if (!text) return;
-                cue.ask(text);
-                setTyped("");
-              }}
-            >
-              <input
-                className="input"
-                value={typed}
-                maxLength={600}
-                onChange={(e) => setTyped(e.target.value)}
-                placeholder="Or type a question to test the answer…"
-                aria-label="Type a question"
-                disabled={!connected || !state.info?.llm.ready}
-              />
-              <button type="submit" className="btn btn-primary" disabled={!typed.trim() || !connected || !state.info?.llm.ready} aria-label="Ask">
-                <Send size={15} /> <span className="hide-sm">Ask</span>
-              </button>
-            </form>
-            <HistoryPanel history={state.history} memoryTurns={state.info?.memoryTurns ?? 4} onReset={cue.resetMemory} />
-          </div>
+        <div className="side">
+          <AudioSourceCard
+            source={source}
+            onSource={setSource}
+            session={state.session}
+            starting={starting}
+            canStart={connected && Boolean(state.info?.stt.ready)}
+            levelRef={levelRef}
+            onStart={start}
+            onStop={cue.stop}
+            onForce={cue.forceAnswer}
+            onHelp={() => setPanel("help")}
+          />
+          <ContextCard context={context} onChange={saveContext} onEdit={() => setPanel("context")} onError={(m) => cue.notifyError(m)} />
         </div>
+
+        <TranscriptPanel turns={state.turns} listening={running} canAsk={llmReady} onClear={cue.clearTranscript} onAsk={cue.ask} />
+
+        <div className="answer-col">
+          <QuestionCard question={state.question} />
+          <AnswerCard answer={state.answer} question={state.question} canRegenerate={llmReady} onCancel={cue.cancelAnswer} onCopy={copy} onRegenerate={cue.regenerate} />
+        </div>
+
+        <MetricsBar metrics={state.answer?.metrics ?? null} all={metricsHistory} />
       </main>
 
       <Toasts toasts={state.toasts} onDismiss={cue.dismissToast} />
-      {drawerOpen && <ContextDrawer initial={context} onSave={saveContext} onClose={() => setDrawerOpen(false)} />}
-    </>
+      {panel === "context" && <ContextDrawer initial={context} onSave={saveContext} onClose={() => setPanel(null)} />}
+      {panel === "history" && <HistoryDrawer history={state.history} memoryTurns={state.info?.memoryTurns ?? 4} onReset={cue.resetMemory} onClose={() => setPanel(null)} />}
+      {panel === "help" && <HelpDrawer onClose={() => setPanel(null)} />}
+    </div>
   );
 }
