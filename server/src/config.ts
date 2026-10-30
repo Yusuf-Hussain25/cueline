@@ -28,7 +28,8 @@ const schema = z.object({
   /** Backup end-of-turn signal (ms) that fires even when background noise defeats endpointing. */
   UTTERANCE_END_MS: z.coerce.number().int().min(1000).max(5000).default(1000),
 
-  LLM_PROVIDER: z.enum(PROVIDERS).optional(),
+  // Empty means "pick automatically"
+  LLM_PROVIDER: z.preprocess((v) => (typeof v === "string" && v.trim() === "" ? undefined : v), z.enum(PROVIDERS).optional()),
   GROQ_API_KEY: optional,
   GROQ_MODEL: z.string().default("llama-3.3-70b-versatile"),
   GROQ_CLASSIFIER_MODEL: z.string().default("llama-3.1-8b-instant"),
