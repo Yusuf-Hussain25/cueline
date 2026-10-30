@@ -145,17 +145,46 @@ describe("QuestionDetector", () => {
     assert.equal(rec.questions[0]?.speechEnd, 2.4);
 
     // The late final for the same segment must not trigger a second answer
-    detector.addFinal("What's the difference between TCP and UDP?", 2.4, "s1");
+    detector.addFinal("What's the difference between TCP and UDP?", 2.4);
     detector.endOfTurn();
     assert.equal(rec.questions.length, 1);
   });
 
-  it("does not close early on unstable or uncertain interim text", () => {
+  it("does not close early on unfinished or unpunctuated interim text", () => {
     mock.timers.enable({ apis: ["setTimeout"] });
     const { detector, rec } = setup();
-    detector.interim("s1", "Tell me about a time when", 1);
+    detector.interim("s1", "Tell me about a time when you had to", 1);
     mock.timers.tick(2000);
-    assert.equal(rec.questions.length, 0, "trailing-off text waits for more");
+    detector.interim("s2", "Tell me about yourself", 3);
+    mock.timers.tick(2000);
+    assert.equal(rec.questions.length, 0, "waits for the STT to finish the sentence");
+  });
+
+  it("re-asks the whole question when the late final adds words", () => {
+    mock.timers.enable({ apis: ["setTimeout"] });
+    const { detector, rec } = setup();
+    detector.interim("s1", "Tell me about a project.", 2);
+    mock.timers.tick(900);
+    assert.equal(rec.questions[0]?.text, "Tell me about a project.");
+    detector.addFinal("Tell me about a project you led from start to finish.", 4);
+    detector.endOfTurn();
+    assert.equal(rec.questions.length, 2);
+    assert.equal(rec.questions[1]?.text, "Tell me about a project you led from start to finish.");
+  });
+
+  it("matches finals that split the early-answered words differently", () => {
+    mock.timers.enable({ apis: ["setTimeout"] });
+    const { detector, rec } = setup();
+    detector.interim("s1", "What's the difference between WebSockets and server sent events?", 2);
+    mock.timers.tick(900);
+    assert.equal(rec.questions.length, 1);
+    // Deepgram finalizes the same words in two pieces, then the rest of the sentence
+    detector.addFinal("What's the difference between WebSockets and server sent", 2);
+    detector.addFinal("events? And when would", 3);
+    detector.addFinal("you pick each one?", 4);
+    detector.endOfTurn();
+    assert.equal(rec.questions.length, 2);
+    assert.equal(rec.questions[1]?.text, "What's the difference between WebSockets and server sent events? And when would you pick each one?");
   });
 
   it("merges an 'and …' continuation into the question it follows", () => {

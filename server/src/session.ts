@@ -39,7 +39,7 @@ const clientMessageSchema = z.discriminatedUnion("type", [
   z.object({ type: z.literal("context"), context: contextSchema }),
   z.object({ type: z.literal("force_answer") }),
   z.object({ type: z.literal("cancel_answer") }),
-  z.object({ type: z.literal("ask"), text: z.string().trim().min(1).max(LIMITS.questionChars) }),
+  z.object({ type: z.literal("ask"), text: z.string().trim().min(1).max(LIMITS.questionChars), regenerate: z.boolean().optional() }),
   z.object({ type: z.literal("reset_memory") }),
 ]) satisfies z.ZodType<ClientMessage>;
 
@@ -121,7 +121,7 @@ export class Session {
         this.cancelAnswer();
         return;
       case "ask":
-        void this.answer({ text: parsed.text, path: "typed", speechEnd: null, preamble: null });
+        void this.answer({ text: parsed.text, path: parsed.regenerate ? "regenerated" : "typed", speechEnd: null, preamble: null });
         return;
       case "reset_memory":
         this.answerer?.clearMemory();
@@ -168,7 +168,7 @@ export class Session {
         onTranscript: (e) => {
           if (run !== this.run) return;
           if (e.text) this.send({ type: "transcript", segmentId: `r${run}-${e.segmentId}`, text: e.text, isFinal: e.isFinal, at: Date.now() });
-          if (e.isFinal) this.detector.addFinal(e.text, e.end, e.segmentId);
+          if (e.isFinal) this.detector.addFinal(e.text, e.end);
           else if (e.text) this.detector.interim(e.segmentId, e.text, e.end);
           if (e.speechFinal) this.detector.endOfTurn();
         },

@@ -16,6 +16,8 @@ import { analyzeTurn, fingerprint, type TurnAnalysis } from "./heuristics.ts";
 
 /** A follow-on clause starting with "and…" within this window extends the previous question. */
 const CONTINUATION_WINDOW_MS = 8000;
+/** How long finals are matched against an early answer's words before being treated as new speech. */
+const EARLY_ANSWER_MATCH_MS = 6000;
 
 export type Classify = (text: string, signal: AbortSignal) => Promise<boolean>;
 
@@ -57,8 +59,11 @@ export class QuestionDetector {
   private preamble: { text: string; at: number } | null = null;
   private interimState: { segmentId: string; text: string; end: number } | null = null;
   private stableTimer: ReturnType<typeof setTimeout> | null = null;
-  /** An interim segment answered early; its final must not open a new turn. */
-  private consumed: { segmentId: string; fingerprint: string } | null = null;
+  /**
+   * Set after answering from interim text. The STT will still deliver finals for those words (often
+   * split differently), so `remaining` tracks the answered words not yet seen in a final.
+   */
+  private consumed: { question: string; remaining: string[]; at: number } | null = null;
 
   private readonly events: DetectorEvents;
   private readonly classify: Classify;
@@ -81,16 +86,13 @@ export class QuestionDetector {
   }
 
   /** A final transcript segment (text that won't change any more). */
-  addFinal(text: string, end: number, segmentId?: string) {
+  addFinal(text: string, end: number) {
     this.clearInterim();
     let t = text.trim();
-    if (this.consumed && segmentId === this.consumed.segmentId) {
-      // Already answered from its interim text: keep only words said after that
-      const print = fingerprint(t);
-      const rest = print.startsWith(this.consumed.fingerprint) ? print.slice(this.consumed.fingerprint.length).trim() : "";
-      this.consumed = null;
-      if (rest.split(" ").filter(Boolean).length < 2) return;
-      t = rest;
+    if (this.consumed) {
+      const extra = this.reconcileWithEarlyAnswer(t);
+      if (extra === null) return;
+      t = extra;
     }
     if (!t) return;
     this.segments.push(t);
@@ -98,10 +100,42 @@ export class QuestionDetector {
     this.interrupt();
   }
 
+  /**
+   * Matches a final against the words already answered early. Returns null when it only repeats
+   * them, or the text to judge when the interviewer said more: the early question plus the new
+   * words, so the whole question is answered again (the new answer replaces the early one).
+   */
+  private reconcileWithEarlyAnswer(text: string): string | null {
+    const consumed = this.consumed!;
+    if (this.now() - consumed.at > EARLY_ANSWER_MATCH_MS) {
+      this.consumed = null;
+      return text;
+    }
+    const tokens = text.split(/\s+/).filter(Boolean);
+    const words = tokens.map((w) => fingerprint(w));
+    let k = 0;
+    while (k < words.length && k < consumed.remaining.length && words[k] === consumed.remaining[k]) k++;
+    if (k === words.length) {
+      consumed.remaining = consumed.remaining.slice(k);
+      return null;
+    }
+    this.consumed = null;
+    if (k < consumed.remaining.length) return text; // the STT revised the words: judge them fresh
+    const extra = tokens.slice(k).join(" ");
+    // "Tell me about a project." + "you led…" reads as one sentence; a "?" before "And…" stays
+    const head = /^[a-z]/.test(extra) ? consumed.question.replace(/\.$/, "") : consumed.question;
+    return extra.split(" ").length >= 2 ? `${head} ${extra}` : null;
+  }
+
   /** Interim (still changing) text for the current segment. */
   interim(segmentId: string, text: string, end: number) {
     const t = text.trim();
-    if (!t || (this.consumed && segmentId === this.consumed.segmentId)) return;
+    if (!t) return;
+    // After an early answer, the rest of that utterance is settled by its finals, not by interims
+    if (this.consumed) {
+      this.speechActivity();
+      return;
+    }
     if (this.interimState?.segmentId === segmentId && this.interimState.text === t) return;
     this.speechActivity();
     this.interimState = { segmentId, text: t, end };
@@ -124,6 +158,8 @@ export class QuestionDetector {
 
   /** The STT thinks the speaker stopped. */
   endOfTurn() {
+    // The utterance that was answered early is over; later words belong to a new turn
+    if (this.segments.length === 0) this.consumed = null;
     if (this.segments.length === 0 || this.holdTimer || this.classifying) return;
     this.evaluate(false);
   }
@@ -153,14 +189,20 @@ export class QuestionDetector {
     this.stableTimer = null;
     const pending = this.interimState;
     if (!pending) return;
-    // Only clear-cut questions: anything uncertain still waits for the STT's own end of turn
+    // Only clear-cut questions the STT has already punctuated as a finished sentence; anything
+    // uncertain still waits for the STT's own end of turn
+    if (!/[?.!]$/.test(pending.text)) return;
     const raw = [...this.segments, pending.text].join(" ");
     const analysis = analyzeTurn(raw);
     if (analysis.verdict !== "question") return;
     this.interrupt();
     this.clearTurn();
     this.clearInterim();
-    this.consumed = { segmentId: pending.segmentId, fingerprint: fingerprint(pending.text) };
+    this.consumed = {
+      question: analysis.cleaned,
+      remaining: pending.text.split(/\s+/).filter(Boolean).map((w) => fingerprint(w)),
+      at: this.now(),
+    };
     this.emit(analysis.cleaned, "heuristic", pending.end, { raw });
   }
 

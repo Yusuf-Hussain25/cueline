@@ -51,12 +51,13 @@ const INTERVIEW_TOPIC =
   /\b(?:experience|project|team|challenge|design|architecture|difference|strength|weakness|salary|notice period|role|company|conflict|failure|mistake|proud|goal|years|background|manager|deadline|scale|performance|testing|debug|leadership|motivat)/;
 /** Last words that always mean the speaker paused mid-sentence ("…a time when"). */
 const TRAILING_INCOMPLETE = new Set([
-  "and", "or", "but", "so", "because", "the", "a", "an", "like", "your", "my", "our", "their",
+  "and", "or", "but", "so", "because", "the", "a", "an", "like", "your", "my", "our", "their", "to",
   "is", "are", "was", "were", "if", "that", "which", "when", "where", "how", "what", "why", "also",
   "then", "between", "versus", "vs",
 ]);
-/** Prepositions end real questions too ("…a project you're proud of"), so only short turns count. */
-const TRAILING_PREPOSITION = new Set(["of", "to", "for", "with", "about", "in", "on", "at", "into", "from", "by"]);
+/** Prepositions end real questions too ("…a project you're proud of"), so only short turns count.
+ *  "to" is not one of them: "…a time when you had to" is always unfinished. */
+const TRAILING_PREPOSITION = new Set(["of", "for", "with", "about", "in", "on", "at", "into", "from", "by"]);
 
 const words = (s: string) => s.split(/\s+/).filter(Boolean);
 
