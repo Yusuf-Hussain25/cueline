@@ -1,0 +1,22 @@
+# dependencies
+node_modules/
+
+# env files hold API keys: only the example is committed
+.env
+.env.*
+!.env.example
+
+# build output
+.next/
+out/
+build/
+dist/
+*.tsbuildinfo
+next-env.d.ts
+
+# local artifacts
+.DS_Store
+*.log
+recordings/
+scripts/audio/*.wav
+!scripts/audio/.gitkeep

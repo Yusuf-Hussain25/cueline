@@ -1,0 +1,26 @@
+{
+  "name": "cueline",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Real-time interview copilot: live transcript, question detection and streamed, resume-grounded answers.",
+  "engines": {
+    "node": ">=22.18"
+  },
+  "workspaces": [
+    "shared",
+    "server",
+    "web"
+  ],
+  "scripts": {
+    "dev": "concurrently -k -n server,web -c blue,magenta \"npm run dev -w server\" \"npm run dev -w web\"",
+    "build": "npm run build -w web",
+    "start": "concurrently -k -n server,web -c blue,magenta \"npm run start -w server\" \"npm run start -w web\"",
+    "lint": "npm run lint -w web && npm run typecheck -w server",
+    "typecheck": "npm run typecheck -w server && npm run typecheck -w web",
+    "test": "npm test -w server",
+    "simulate": "npm run simulate -w server --"
+  },
+  "devDependencies": {
+    "concurrently": "^10.0.6"
+  }
+}

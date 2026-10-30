@@ -1,0 +1,10 @@
+{
+  "name": "@cueline/shared",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "WebSocket protocol and audio constants shared by the Cueline server and web client.",
+  "exports": {
+    ".": "./src/index.ts"
+  }
+}
